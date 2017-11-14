@@ -1,0 +1,260 @@
+Description: >
+
+  This template sets up a simple VPC.
+
+Parameters:
+
+  ApplicationName:
+    Description: The application name to tag resources with
+    Type: String
+
+  VpcCidrBlock:
+    Description: The CIDR block to use for the VPC
+    Type: String
+    Default: 10.0.0.0/16
+
+  PubSubnet1CidrBlock:
+    Description: The CIDR block for the first public subnet
+    Type: String
+    Default: 10.0.10.0/24
+
+  PubSubnet2CidrBlock:
+    Description: The CIDR block for the second public subnet
+    Type: String
+    Default: 10.0.11.0/24
+
+  PrivSubnet1CidrBlock:
+    Description: The CIDR block for the first private subnet
+    Type: String
+    Default: 10.0.20.0/24
+
+  PrivSubnet2CidrBlock:
+    Description: The CIDR block for the second private subnet
+    Type: String
+    Default: 10.0.21.0/24
+
+Resources:
+
+  VPC:
+    Type: AWS::EC2::VPC
+    Properties:
+      CidrBlock: !Ref VpcCidrBlock
+      Tags:
+        - Key: application-name
+          Value: !Ref ApplicationName
+
+  IPv6Block:
+    Type: AWS::EC2::VPCCidrBlock
+    Properties:
+      AmazonProvidedIpv6CidrBlock: true
+      VpcId: !Ref VPC
+
+  PubSubnet1:
+    Type: AWS::EC2::Subnet
+    Properties:
+      AvailabilityZone: !Select [ 0, !GetAZs ]
+      CidrBlock: !Ref PubSubnet1CidrBlock
+      VpcId: !Ref VPC
+      Tags:
+        - Key: application-name
+          Value: !Ref ApplicationName
+        - Key: Name
+          Value: Public Subnet 1
+
+  PubSubnet2:
+    Type: AWS::EC2::Subnet
+    Properties:
+      AvailabilityZone: !Select [ 1, !GetAZs ]
+      CidrBlock: !Ref PubSubnet2CidrBlock
+      VpcId: !Ref VPC
+      Tags:
+        - Key: application-name
+          Value: !Ref ApplicationName
+        - Key: Name
+          Value: Public Subnet 2
+
+  PrivSubnet1:
+    Type: AWS::EC2::Subnet
+    Properties:
+      AvailabilityZone: !Select [ 0, !GetAZs ]
+      CidrBlock: !Ref PrivSubnet1CidrBlock
+      VpcId: !Ref VPC
+      Tags:
+        - Key: application-name
+          Value: !Ref ApplicationName
+        - Key: Name
+          Value: Private Subnet 1
+
+  PrivSubnet2:
+    Type: AWS::EC2::Subnet
+    Properties:
+      AvailabilityZone: !Select [ 1, !GetAZs ]
+      CidrBlock: !Ref PrivSubnet2CidrBlock
+      VpcId: !Ref VPC
+      Tags:
+        - Key: application-name
+          Value: !Ref ApplicationName
+        - Key: Name
+          Value: Private Subnet 2
+
+  InternetGateway:
+    Type: AWS::EC2::InternetGateway
+    Properties:
+      Tags:
+        - Key: application-name
+          Value: !Ref ApplicationName
+
+  InternetGatewayAttachment:
+    Type: AWS::EC2::VPCGatewayAttachment
+    Properties:
+      InternetGatewayId: !Ref InternetGateway
+      VpcId: !Ref VPC
+
+  IPv6EgressGateway:
+    Type: AWS::EC2::EgressOnlyInternetGateway
+    Properties:
+      VpcId: !Ref VPC
+
+  NatGatewayEIP1:
+    Type: AWS::EC2::EIP
+    DependsOn: InternetGatewayAttachment
+    Properties:
+      Domain: vpc
+
+  NatGatewayEIP2:
+    Type: AWS::EC2::EIP
+    DependsOn: InternetGatewayAttachment
+    Properties:
+      Domain: vpc
+
+  NatGateway1:
+    Type: AWS::EC2::NatGateway
+    Properties:
+      AllocationId: !GetAtt NatGatewayEIP1.AllocationId
+      SubnetId: !Ref PubSubnet1
+      Tags:
+        - Key: application-name
+          Value: !Ref ApplicationName
+        - Key: Name
+          Value: Nat Gatway 1
+
+  NatGateway2:
+    Type: AWS::EC2::NatGateway
+    Properties:
+      AllocationId: !GetAtt NatGatewayEIP2.AllocationId
+      SubnetId: !Ref PubSubnet2
+      Tags:
+        - Key: application-name
+          Value: !Ref ApplicationName
+        - Key: Name
+          Value: Nat Gatway 2
+
+  PubRouteTable:
+    Type: AWS::EC2::RouteTable
+    Properties:
+      VpcId: !Ref VPC
+      Tags:
+        - Key: application-name
+          Value: !Ref ApplicationName
+        - Key: Name
+          Value: Public Route Table
+
+  PrivRouteTable1:
+    Type: AWS::EC2::RouteTable
+    Properties:
+      VpcId: !Ref VPC
+      Tags:
+        - Key: application-name
+          Value: !Ref ApplicationName
+        - Key: Name
+          Value: Private Route Table 1
+
+  PrivRouteTable2:
+    Type: AWS::EC2::RouteTable
+    Properties:
+      VpcId: !Ref VPC
+      Tags:
+        - Key: application-name
+          Value: !Ref ApplicationName
+        - Key: Name
+          Value: Private Route Table 2
+
+  PubRoute:
+    Type: AWS::EC2::Route
+    Properties:
+      RouteTableId: !Ref PubRouteTable
+      DestinationCidrBlock: 0.0.0.0/0
+      GatewayId: !Ref InternetGateway
+
+  PubIPv6Route:
+    Type: AWS::EC2::Route
+    Properties:
+      RouteTableId: !Ref PubRouteTable
+      DestinationIpv6CidrBlock: ::/0
+      GatewayId: !Ref InternetGateway
+
+  PrivRoute1:
+    Type: AWS::EC2::Route
+    Properties:
+      RouteTableId: !Ref PrivRouteTable1
+      DestinationCidrBlock: 0.0.0.0/0
+      NatGatewayId: !Ref NatGateway1
+
+  Priv1IPv6Route:
+    Type: AWS::EC2::Route
+    Properties:
+      RouteTableId: !Ref PrivRouteTable1
+      DestinationIpv6CidrBlock: ::/0
+      EgressOnlyInternetGatewayId: !Ref IPv6EgressGateway
+
+  PrivRoute2:
+    Type: AWS::EC2::Route
+    Properties:
+      RouteTableId: !Ref PrivRouteTable2
+      DestinationCidrBlock: 0.0.0.0/0
+      NatGatewayId: !Ref NatGateway2
+
+  Priv2IPv6Route:
+    Type: AWS::EC2::Route
+    Properties:
+      RouteTableId: !Ref PrivRouteTable2
+      DestinationIpv6CidrBlock: ::/0
+      EgressOnlyInternetGatewayId: !Ref IPv6EgressGateway
+
+  PubRouteTableAssoc1:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      RouteTableId: !Ref PubRouteTable
+      SubnetId: !Ref PubSubnet1
+
+  PubRouteTableAssoc2:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      RouteTableId: !Ref PubRouteTable
+      SubnetId: !Ref PubSubnet2
+
+  PrivRouteTableAssoc1:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      RouteTableId: !Ref PrivRouteTable1
+      SubnetId: !Ref PrivSubnet1
+
+  PrivRouteTableAssoc2:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      RouteTableId: !Ref PrivRouteTable2
+      SubnetId: !Ref PrivSubnet2
+
+Outputs:
+
+  VPC:
+    Description: The VPC
+    Value: !Ref VPC
+
+  PubSubnets:
+    Description: The public subnets
+    Value: !Join [ ",", [ !Ref PubSubnet1, !Ref PubSubnet2 ]]
+
+  PrivSubnets:
+    Description: The private subnets
+    Value: !Join [ ",", [ !Ref PrivSubnet1, !Ref PrivSubnet2 ]]

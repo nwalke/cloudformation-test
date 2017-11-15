@@ -1,0 +1,146 @@
+Description: >
+
+  This template sets up our web service
+
+Parameters:
+
+  AmiId:
+    Description: The ID of the AMI to use
+    Type: String
+    Default: ami-da05a4a0
+
+  ApplicationName:
+    Description: The application name to tag resources with
+    Type: String
+
+  DesiredCount:
+    Description: The desired number of instances to be in the ASG (max and min will also be set to this)
+    Type: Number
+    Default: 2
+
+  InstanceType:
+    Description: The type of instance to launch in the ASG
+    Type: String
+    Default: t2.nano
+
+  VPC:
+    Description: The VPC this service should be deployed in
+    Type: AWS::EC2::VPC::Id
+
+  ELBSubnets:
+    Description: A list of subnets that the ELB should be deployed in
+    Type: List<AWS::EC2::Subnet::Id>
+
+  ASGSubnets:
+    Description: A list of subnets that instances should be launched in
+    Type: List<AWS::EC2::Subnet::Id>
+
+Resources:
+
+  ServerSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupName: !Ref ApplicationName
+      GroupDescription: !Ref ApplicationName
+      VpcId: !Ref VPC
+
+  ELBSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupName: !Join [ "-", [ !Ref ApplicationName, "elb" ] ]
+      GroupDescription: !Join [ "-", [ !Ref ApplicationName, "elb" ] ]
+      VpcId: !Ref VPC
+      SecurityGroupIngress:
+        - IpProtocol: tcp
+          FromPort: 80
+          ToPort: 80
+          CidrIp: 0.0.0.0/0
+        - IpProtocol: tcp
+          FromPort: 80
+          ToPort: 80
+          CidrIpv6: ::/0
+      SecurityGroupEgress:
+        - IpProtocol: tcp
+          FromPort: 80
+          ToPort: 80
+          DestinationSecurityGroupId: !Ref ServerSecurityGroup
+      Tags:
+        - Key: application-name
+          Value: !Ref ApplicationName
+
+  AllowELBRule:
+    Type: AWS::EC2::SecurityGroupIngress
+    Properties:
+      IpProtocol: tcp
+      FromPort: 80
+      ToPort: 80
+      SourceSecurityGroupId: !Ref ELBSecurityGroup
+      GroupId: !Ref ServerSecurityGroup
+
+  LaunchConfig:
+    Type: AWS::AutoScaling::LaunchConfiguration
+    Properties:
+      ImageId: !Ref AmiId
+      InstanceType: !Ref InstanceType
+      SecurityGroups:
+        - !Ref ServerSecurityGroup
+      UserData:
+        "Fn::Base64": |
+          #cloud-config
+          manage_etc_hosts: true
+          package_update: true
+          package_upgrade: true
+          runcmd:
+            - wget -q -P /tmp https://packages.chef.io/files/stable/chefdk/2.3.4/ubuntu/16.04/chefdk_2.3.4-1_amd64.deb
+            - dpkg -i /tmp/chefdk_2.3.4-1_amd64.deb
+            - mkdir /opt/chef
+            - wget -q -P /opt/chef https://s3.amazonaws.com/nwalke-cf-test/Berksfile
+            - cd /opt/chef && HOME=/root berks vendor cookbooks
+            - cd /opt/chef && chef-client -z -r apache2
+
+  ELB:
+    Type: AWS::ElasticLoadBalancing::LoadBalancer
+    Properties:
+      Subnets: !Ref ELBSubnets
+      Listeners:
+        - LoadBalancerPort: 80
+          InstancePort: 80
+          Protocol: HTTP
+      SecurityGroups:
+        - !Ref ELBSecurityGroup
+      Tags:
+        - Key: application-name
+          Value: !Ref ApplicationName
+        - Key: Name
+          Value: !Join [ "-", [ !Ref ApplicationName, "elb" ] ]
+
+  ASG:
+    Type: AWS::AutoScaling::AutoScalingGroup
+    UpdatePolicy:
+      AutoScalingRollingUpdate:
+        MinInstancesInService: 1
+        MaxBatchSize: 1
+        PauseTime: "PT10M0S"
+    Properties:
+      DesiredCapacity: !Ref DesiredCount
+      HealthCheckType: ELB
+      HealthCheckGracePeriod: 300
+      LaunchConfigurationName: !Ref LaunchConfig
+      LoadBalancerNames:
+        - !Ref ELB
+      MaxSize: !Ref DesiredCount
+      MinSize: !Ref DesiredCount
+      VPCZoneIdentifier: !Ref ASGSubnets
+      Tags:
+        - Key: application-name
+          Value: !Ref ApplicationName
+          PropagateAtLaunch: true
+        - Key: Name
+          Value: !Ref ApplicationName
+          PropagateAtLaunch: false
+
+Outputs:
+
+  URL:
+    Description: The URL of the load balancer
+    Value: !GetAtt ELB.DNSName

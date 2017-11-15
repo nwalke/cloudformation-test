@@ -1,0 +1,28 @@
+Description: >
+
+  The template sets up two instances in a VPC behind an ELB.
+
+Resources:
+
+  VPC:
+    Type: AWS::CloudFormation::Stack
+    Properties:
+      TemplateURL: https://s3.amazonaws.com/nwalke-cf-test/vpc.yaml
+      Parameters:
+        ApplicationName: !Ref AWS::StackName
+
+  WebService:
+    Type: AWS::CloudFormation::Stack
+    Properties:
+      TemplateURL: https://s3.amazonaws.com/nwalke-cf-test/web-service.yaml
+      Parameters:
+        ApplicationName: !Ref AWS::StackName
+        VPC: !GetAtt VPC.Outputs.VPC
+        ELBSubnets:  !GetAtt VPC.Outputs.PubSubnets
+        ASGSubnets: !GetAtt VPC.Outputs.PrivSubnets
+
+Outputs:
+
+  WebServiceUrl:
+    Description: The load balanced URL
+    Value: !GetAtt WebService.Outputs.URL
